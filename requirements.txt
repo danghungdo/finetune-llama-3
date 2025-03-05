@@ -7,6 +7,9 @@ bitsandbytes==0.43.1
 huggingface_hub==0.22.2
 trl==0.8.6
 peft==0.10.0
-sklearn
+scikit-learn
 loguru
-yaml
+PyYAML
+numpy==1.26
+scipy
+pandas
