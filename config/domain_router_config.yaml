@@ -5,13 +5,13 @@ name: "domain router"
 data_path: "data/dataset.pkl"
 
 # Model
+model_name: "/home/dang.hung.do/models/meta-llama/Meta-Llama-3-8B-Instruct"
 model:
-  model_name: "meta-llama/Meta-Llama-3-8B-Instruct"
   # quantization config
   load_in_4bit: True
   bnb_4bit_quant_type: "nf4" 
   bnb_4bit_use_double_quant: True
-  bnb_4bit_compute_dtype: torch.bfloat16
+  bnb_4bit_compute_dtype: "torch.bfloat16"
   # lora config
   r: 8
   lora_alpha: 16
@@ -22,7 +22,7 @@ model:
 # training config
 train:
   output_dir: "sequence_classification"
-  learning_rate: 1e-4
+  learning_rate: 0.0001
   per_device_train_batch_size: 8
   per_device_eval_batch_size: 8
   num_train_epochs: 5
