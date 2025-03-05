@@ -1,14 +1,14 @@
 import torch
 import torch.nn.functional as F
-from transformer import Trainer
 import pandas as pd
 from sklearn.model_selection import train_test_split
-from datasets import Dataset, DatasetDict, DataCollatorWithPadding
-from transformers import TrainingArguments
+from datasets import Dataset, DatasetDict
+from transformers import TrainingArguments, DataCollatorWithPadding, Trainer
 from scipy.stats import pearsonr
 from loguru import logger
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
-from inference import predict
+from src.inference import predict
+import numpy as np
 
 
 class MyTrainer(Trainer):
@@ -32,9 +32,9 @@ class MyTrainer(Trainer):
         logits = ouputs.get("logits")
 
         if self.class_weights is not None:
-            loss = F.CrossEntropyLoss(logits, labels, weight=self.class_weights)
+            loss = F.cross_entropy(logits, labels, weight=self.class_weights)
         else:
-            loss = F.CrossEntropyLoss(logits, labels)
+            loss = F.cross_entropy(logits, labels)
 
         return (loss, ouputs) if return_outputs else loss
 
@@ -42,7 +42,7 @@ class MyTrainer(Trainer):
 def compute_metrics(eval_pred):
     logits, labels = eval_pred
     try:
-        predictions = torch.argmax(logits, dim=-1)
+        predictions = np.argmax(logits, axis=1)
         pearson, _ = pearsonr(predictions, labels)
         return {"pearson": pearson}
     except Exception as e:
@@ -63,30 +63,32 @@ def train_model(peft_model, dataset, category_map, tokenizer, config):
         load_best_model_at_end=config["load_best_model_at_end"],
     )
     # shuffle and split data
+    X = dataset.pop("query").to_frame()
+    y = dataset.pop("target").to_frame()
     X_train, X_test, y_train, y_test = train_test_split(
-        dataset.pop("query").to_frame(),
-        dataset.pop("target").to_frame(),
+        X,
+        y,
         test_size=0.2,
         random_state=42,
+        stratify=y,
     )
 
     X_test, X_val, y_test, y_val = train_test_split(
-        X_test, y_test, test_size=0.5, random_state=42
+        X_test, y_test, test_size=0.5, random_state=42, stratify=y_test
     )
 
     # compute class weights
     class_weights = (1 / y_train.value_counts(normalize=True)).to_list()
     class_weights = torch.tensor(class_weights)
     class_weights = class_weights / class_weights.sum()
-
     # Create huggingface datasets
     dataset_train = Dataset.from_pandas(
-        pd.concat([X_train, y_train], axis=1, columns=["query", "target"])
+        pd.concat([X_train, y_train], axis=1).reset_index(drop=True)
     )
     dataset_val = Dataset.from_pandas(
-        pd.concat([X_val, y_val], axis=1, columns=["query", "target"])
+        pd.concat([X_val, y_val], axis=1).reset_index(drop=True)
     )
-    dataset_test = pd.concat([X_test, y_test], axis=1, columns=["query", "target"])
+    dataset_test = pd.concat([X_test, y_test], axis=1).reset_index(drop=True)
 
     dataset = DatasetDict(
         {
@@ -102,18 +104,23 @@ def train_model(peft_model, dataset, category_map, tokenizer, config):
         return tokenizer(examples["query"], truncation=True, max_length=max_len)
 
     tokenized_datasets = dataset.map(process_llama, batched=True)
-    # tokenized_datasets = tokenized_datasets.rename_column("target", "label")
+    tokenized_datasets = tokenized_datasets.rename_column("target", "label")
     tokenized_datasets.set_format("torch")
 
+    peft_model.config.pad_token_id = tokenizer.pad_token_id
+    peft_model.config.use_cache = False
+    peft_model.config.pretraining_tp = 1
+    
     trainer = MyTrainer(
         model=peft_model,
         args=training_args,
-        train_dataset=dataset["train"],
-        eval_dataset=dataset["eval"],
+        train_dataset=tokenized_datasets["train"],
+        eval_dataset=tokenized_datasets["eval"],
         tokenizer=tokenizer,
         data_collator=collate_fnc,
         compute_metrics=compute_metrics,
         class_weights=class_weights,
+
     )
 
     trainer.train()
@@ -122,6 +129,7 @@ def train_model(peft_model, dataset, category_map, tokenizer, config):
     predictions = predict(peft_model, dataset_test, tokenizer, max_len)
     predictions = [category_map[p] for p in predictions]
     y_test = dataset_test["target"].tolist()
+    y_test = [category_map[p] for p in y_test]
     print("Confusion matrix:")
     print(confusion_matrix(y_test, predictions))
     print("Classification report:")

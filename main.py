@@ -1,9 +1,8 @@
 import argparse
 import yaml
 from loguru import logger
-from src.data import process_data
-from src.model import load_model
-from src.model_utils import load_tokenizer
+from src.data_utils import process_data, load_tokenizer
+from src.model_utils import load_model
 from src.train import train_model
 
 

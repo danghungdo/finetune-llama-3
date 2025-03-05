@@ -1,13 +1,17 @@
 from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
 from transformers import AutoModelForSequenceClassification, BitsAndBytesConfig
-
+import torch
 
 def load_model(model_name, config, num_labels):
+    dtype_str = config["bnb_4bit_compute_dtype"]
+    dtype_name =dtype_str.split(".")[-1]
+    dtype = getattr(torch, dtype_name)
+    
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=config["load_in_4bit"],
         bnb_4bit_quant_type=config["bnb_4bit_quant_type"],
         bnb_4bit_use_double_quant=config["bnb_4bit_use_double_quant"],
-        bnb_4bit_compute_dtype=config["bnb_4bit_compute_dtype"],
+        bnb_4bit_compute_dtype=dtype,
     )
 
     lora_config = LoraConfig(
